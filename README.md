@@ -12,8 +12,6 @@ npm test
 npm run dev
 ```
 
-打开 http://127.0.0.1:3210 。
-
 作品介绍（背景、技术架构、应用场景、创新点）：[docs/作品介绍.md](docs/作品介绍.md)，PDF 为 [docs/作品介绍.pdf](docs/作品介绍.pdf)。
 
 演示视频（在浏览器中直接播放）：<https://fangyib.github.io/project-pilot/demo.html>
