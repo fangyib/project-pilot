@@ -66,31 +66,36 @@ async function executeTask(project: Project, task: Task, context: ExecuteContext
   emit(context, project, { type: "run.started", taskId: task.id, runId: run.id, message: `${task.title} 开始使用 ${profile?.label ?? modelId}` });
   try {
     if (task.capability === "integration" || task.capability === "testing") await copyDependencyFiles(project, task, root);
-    run.status = "running";
-    const provider = await providerFor(modelId, context);
-    const existingFiles = await loadExisting(root, task);
-    const result = await provider.execute({
-      capability: task.capability,
-      title: task.title,
-      acceptance: task.acceptance,
-      idea: project.idea,
-      existingFiles,
-      modelId,
-      fileScope: task.fileScope,
-      note: project.steering,
-      signal: signalFor(project.id),
-      checkpoint: () => checkpoint(project.id),
-    });
-    const files = await writeWorkspaceFiles(root, result.files);
-    run.logs.push(...result.logs);
-    run.costCents = result.costCents;
-    project.spentCents += result.costCents;
-    for (const line of result.logs) emit(context, project, { type: "run.log", taskId: task.id, runId: run.id, message: line });
-    const changeset: ChangeSet = { id: randomUUID(), projectId: project.id, taskId: task.id, runId: run.id, files, createdAt: new Date().toISOString() };
-    project.changesets.push(changeset);
-    emit(context, project, { type: "changeset.created", taskId: task.id, message: `写入 ${files.map((file) => file.path).join("、")}` });
-    for (const file of files) project.artifacts.push({ id: randomUUID(), projectId: project.id, taskId: task.id, title: file.path, path: path.join(root, file.path), kind: task.artifactType });
-    await commitWorkspace(root, task.title);
+    const keepExistingCheck = task.capability === "testing" && await findVerifyScript(root);
+    if (keepExistingCheck) {
+      run.logs.push("沿用已生成的验证脚本，不再改写页面");
+    } else {
+      run.status = "running";
+      const provider = await providerFor(modelId, context);
+      const existingFiles = await loadExisting(root, task);
+      const result = await provider.execute({
+        capability: task.capability,
+        title: task.title,
+        acceptance: task.acceptance,
+        idea: project.idea,
+        existingFiles,
+        modelId,
+        fileScope: task.fileScope,
+        note: project.steering,
+        signal: signalFor(project.id),
+        checkpoint: () => checkpoint(project.id),
+      });
+      const files = await writeWorkspaceFiles(root, result.files);
+      run.logs.push(...result.logs);
+      run.costCents = result.costCents;
+      project.spentCents += result.costCents;
+      for (const line of result.logs) emit(context, project, { type: "run.log", taskId: task.id, runId: run.id, message: line });
+      const changeset: ChangeSet = { id: randomUUID(), projectId: project.id, taskId: task.id, runId: run.id, files, createdAt: new Date().toISOString() };
+      project.changesets.push(changeset);
+      emit(context, project, { type: "changeset.created", taskId: task.id, message: `写入 ${files.map((file) => file.path).join("、")}` });
+      for (const file of files) project.artifacts.push({ id: randomUUID(), projectId: project.id, taskId: task.id, title: file.path, path: path.join(root, file.path), kind: task.artifactType });
+      await commitWorkspace(root, task.title);
+    }
     run.status = "verifying";
     const verification = task.capability === "testing" ? await verify(project, task, run, root) : null;
     if (verification) {
@@ -98,6 +103,7 @@ async function executeTask(project: Project, task: Task, context: ExecuteContext
       emit(context, project, { type: "verification.completed", taskId: task.id, passed: verification.passed, message: verification.passed ? "验证通过" : verification.evidence });
       if (!verification.passed) throw new Error(verification.evidence);
     }
+    if (task.capability === "integration") await publishApp(root, project.workspaceDir);
     run.status = "succeeded";
     run.finishedAt = new Date().toISOString();
     task.status = "done";
@@ -127,6 +133,15 @@ async function providerFor(modelId: string, context: ExecuteContext): Promise<Mo
   const key = await context.resolveKey(modelId);
   if (!key) throw new Error("所选模型没有可用的 API 连接");
   return new OpenAICompatibleProvider({ ...key, model: modelId });
+}
+
+async function publishApp(from: string, workspace: string): Promise<void> {
+  if (path.resolve(from) === path.resolve(workspace)) return;
+  const entries = await readdir(from, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.name === ".git" || entry.name === "tasks" || entry.name === "node_modules") continue;
+    await cp(path.join(from, entry.name), path.join(workspace, entry.name), { recursive: true, force: true });
+  }
 }
 
 async function copyDependencyFiles(project: Project, task: Task, root: string): Promise<void> {
@@ -220,10 +235,17 @@ function recordStat(project: Project, modelId: string, success: boolean): void {
   if (success) stat.success += 1;
 }
 
+export function verificationFailureDetail(message: string): string {
+  if (message.includes("没有找到验证脚本")) return "没有找到验证脚本 verify.mjs 或 validate.js。";
+  const lines = message.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const failed = lines.filter((line) => line.includes("✗") || /项检查未通过/.test(line));
+  if (failed.length) return failed.join("；").slice(0, 320);
+  return lines[0]?.slice(0, 180) ?? "请选择下一步。";
+}
+
 function block(project: Project, task: Task, context: ExecuteContext, message: string, runId?: string): void {
   task.status = "blocked";
-  const detail = message.includes("verify.mjs") ? "没有找到验证脚本 verify.mjs 或 validate.js。" : message.split(/\r?\n/).map((line) => line.trim()).find(Boolean)?.slice(0, 180);
-  const decision = { id: randomUUID(), projectId: project.id, taskId: task.id, prompt: `「${task.title}」没有通过。${detail ?? "请选择下一步。"}`, options: ["重试", "缩小范围", "更换模型", "交给我处理"], createdAt: new Date().toISOString() };
+  const decision = { id: randomUUID(), projectId: project.id, taskId: task.id, prompt: `「${task.title}」没有通过。${verificationFailureDetail(message)}`, options: ["重试", "缩小范围", "更换模型", "交给我处理"], createdAt: new Date().toISOString() };
   project.decisions.push(decision);
   project.status = "needs_user";
   emit(context, project, { type: "decision.requested", decisionId: decision.id, message });

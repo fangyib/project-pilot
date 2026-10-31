@@ -11,7 +11,7 @@ import { createPilot } from "../src/service/pilot.js";
 import { createMemoryStore } from "../src/store/database.js";
 import { decryptSecret, encryptSecret } from "../src/store/crypto.js";
 import { OpenAICompatibleProvider } from "../src/executor/provider.js";
-import { findVerifyScript } from "../src/executor/runProject.js";
+import { findVerifyScript, verificationFailureDetail } from "../src/executor/runProject.js";
 import { findAppRoot } from "../src/executor/app-root.js";
 import { listProjectFiles, readProjectFile, writeProjectFile } from "../src/executor/project-folder.js";
 import { beginRun, checkpoint, endRun, pauseRun, resumeRun, stopRun } from "../src/executor/run-control.js";
@@ -56,6 +56,41 @@ test("API Key 只保存密文", () => {
   assert.equal(decryptSecret(encrypted, key), "sk-test-secret-1234");
 });
 
+test("模型只回复文字时，把内容写入约定的单个文件", async () => {
+  const provider = new OpenAICompatibleProvider({
+    baseUrl: "https://example.test/v1",
+    apiKey: "secret",
+    model: "demo",
+    async fetchImpl() {
+      return new Response(JSON.stringify({ choices: [{ message: { content: "# 契约\n\nsrc/app.js 导出 createApp，页面入口是 index.html。" } }] }), { status: 200 });
+    },
+  });
+  const result = await provider.execute({ capability: "architecture", title: "定义模块契约", acceptance: "约定导出", existingFiles: {}, modelId: "demo", fileScope: ["docs/architecture.md"] });
+  assert.match(result.files["docs/architecture.md"], /createApp/);
+});
+
+test("截断的写入参数不会中断任务，模型可以在同一次执行里重写", async () => {
+  let calls = 0;
+  const provider = new OpenAICompatibleProvider({
+    baseUrl: "https://example.test/v1",
+    apiKey: "secret",
+    model: "demo",
+    async fetchImpl() {
+      calls += 1;
+      const toolCalls = calls === 1
+        ? [{ id: "1", function: { name: "write_file", arguments: '{"path":"index.html","content":"<html>' } }]
+        : [
+            { id: "2", function: { name: "write_file", arguments: JSON.stringify({ path: "index.html", content: "<html></html>" }) } },
+            { id: "3", function: { name: "complete", arguments: JSON.stringify({ summary: "完成" }) } },
+          ];
+      return new Response(JSON.stringify({ choices: [{ message: { tool_calls: toolCalls } }] }), { status: 200 });
+    },
+  });
+  const result = await provider.execute({ capability: "integration", title: "集成可运行入口", acceptance: "生成页面", existingFiles: {}, modelId: "demo" });
+  assert.equal(calls, 2);
+  assert.equal(result.files["index.html"], "<html></html>");
+});
+
 test("OpenAI-compatible 适配层执行统一写入工具", async () => {
   const provider = new OpenAICompatibleProvider({
     baseUrl: "https://example.test/v1",
@@ -88,9 +123,17 @@ test("一个小型游戏项目能完成拆分、隔离执行、集成和验证",
   assert.equal(finished.outputDir, outputDir);
   assert.equal(finished.status, "delivered");
   assert.equal(finished.verifications[0]?.passed, true);
+  assert.equal(await readFile(path.join(outputDir, "index.html"), "utf8").then((text) => text.includes("html")), true);
   assert.ok(finished.changesets.some((item) => item.files.some((file) => file.path === "assets/player.svg")));
   assert.ok(finished.changesets.some((item) => item.files.some((file) => file.path === "src/game.js")));
   assert.ok(finished.events.some((event) => event.type === "verification.completed"));
+});
+
+test("验证失败时显示未通过的检查，而不是第一节标题", () => {
+  const detail = verificationFailureDetail("[1] 文件存在性\n  ✓ index.html 存在\n[2] HTML 入口\n  ✗ 包含 canvas#game\n  ✗ 引入 game.js\n\n4 项检查未通过 ❌");
+  assert.match(detail, /包含 canvas#game/);
+  assert.match(detail, /引入 game.js/);
+  assert.equal(detail.includes("[1] 文件存在性"), false);
 });
 
 test("选择重试会把停住的验证放回待执行，并补跑缺少脚本的集成", async () => {
