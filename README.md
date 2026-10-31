@@ -17,8 +17,6 @@ npm run dev
 
 作品介绍（背景、技术架构、应用场景、创新点）：[docs/作品介绍.md](docs/作品介绍.md)，PDF 为 [docs/作品介绍.pdf](docs/作品介绍.pdf)。
 
-`npm run validate` 会生成 `examples/side-scroller`，这是一个可打开的小型横版游戏，用来验证任务拆分、模型推荐、并行隔离和自动验证。
-
 ## 范围
 
 产品边界和术语见 [docs/SCOPE.md](docs/SCOPE.md)。

@@ -1,3 +1,5 @@
 node_modules/
 data/
 dist/
+examples/side-scroller/
+examples/run/

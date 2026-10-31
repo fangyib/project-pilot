@@ -5,9 +5,7 @@
 - 蓝图在确认前生成，不需要真实 API 调用。
 - 已连接 DeepSeek 时，游戏逻辑推荐 DeepSeek Chat；GPT-4.1 因国内偏好被过滤。
 - 画面、逻辑、关卡三个任务只依赖架构契约，执行时处于同一并行波次。
-- 实际执行使用本地试用执行器，产物位于 examples/side-scroller。
+- 实际执行使用本地试用执行器，不保留可打开的示例页面。
 - 自动验证命令 `node verify.mjs` 已通过。
 - 项目最终状态：delivered。
 - 运行事件 29 条，变更集 7 个。
-
-打开 examples/side-scroller/index.html 可查看集成后的游戏页面。

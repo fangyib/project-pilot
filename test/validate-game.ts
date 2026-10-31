@@ -1,4 +1,4 @@
-import { cp, mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { createPilot } from "../src/service/pilot.js";
@@ -28,11 +28,6 @@ const outputDir = path.join(dataDir, "workspaces", created.id);
 await mkdir(outputDir, { recursive: true });
 const finished = await pilot.execute((await pilot.confirm(created.id, outputDir)).id, "trial");
 if (finished.status !== "delivered" || !finished.verifications.at(-1)?.passed) throw new Error("游戏项目验证失败");
-const testing = finished.tasks.find((task) => task.capability === "testing");
-const source = path.join(finished.workspaceDir, "tasks", testing!.id);
-const destination = path.resolve("examples/side-scroller");
-await mkdir(path.dirname(destination), { recursive: true });
-await cp(source, destination, { recursive: true, force: true });
 await mkdir("docs", { recursive: true });
 await writeFile("docs/VALIDATION.md", `# 小型项目验证
 
@@ -41,11 +36,9 @@ await writeFile("docs/VALIDATION.md", `# 小型项目验证
 - 蓝图在确认前生成，不需要真实 API 调用。
 - 已连接 DeepSeek 时，游戏逻辑推荐 DeepSeek Chat；GPT-4.1 因国内偏好被过滤。
 - 画面、逻辑、关卡三个任务只依赖架构契约，执行时处于同一并行波次。
-- 实际执行使用本地试用执行器，产物位于 examples/side-scroller。
+- 实际执行使用本地试用执行器，不保留可打开的示例页面。
 - 自动验证命令 \`node verify.mjs\` 已通过。
 - 项目最终状态：${finished.status}。
 - 运行事件 ${finished.events.length} 条，变更集 ${finished.changesets.length} 个。
-
-打开 examples/side-scroller/index.html 可查看集成后的游戏页面。
 `, "utf8");
 console.log("validation ok");
