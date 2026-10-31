@@ -16,7 +16,7 @@ npm run dev
 
 作品介绍（背景、技术架构、应用场景、创新点）：[docs/作品介绍.md](docs/作品介绍.md)，PDF 为 [docs/作品介绍.pdf](docs/作品介绍.pdf)。
 
-演示视频（在浏览器中直接播放）：[docs/demo.mp4](https://github.com/fangyib/project-pilot/blob/main/docs/demo.mp4)。
+演示视频（在浏览器中直接播放）：<https://fangyib.github.io/project-pilot/demo.html>
 
 ## 范围
 
