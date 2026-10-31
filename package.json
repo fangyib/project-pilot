@@ -1,0 +1,16 @@
+{
+  "name": "project-pilot",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/server/index.ts",
+    "test": "tsx --test test/**/*.test.ts",
+    "validate": "tsx test/validate-game.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}
